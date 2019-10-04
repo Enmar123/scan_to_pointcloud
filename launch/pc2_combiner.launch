@@ -1,0 +1,12 @@
+<!--
+  Launch file for pc2_combiner which republishes sever pc2 messages under a 
+  new name.
+-->
+
+<launch>
+  <node pkg="jackal-pc" type="pc2_combiner.py" name="pc2_combiner" >
+    <param name="in1_name" value="pointcloud1" />
+    <param name="in2_name" value="pointcloud2" />
+    <param name="out_name" value="pointcloud3" />
+  </node>
+</launch>

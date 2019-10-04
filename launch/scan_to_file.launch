@@ -1,0 +1,13 @@
+<!--
+This launch file starts a scan_to_file node which takes a LaserScan message
+maps it to the world_frame and saves the values as a xyz space delimited file.
+-->
+
+<launch>
+  <node pkg="jackal-pc" type="scan_to_file.py" name="scan_to_file" >
+    <param name="world_frame_id"  value="odom"                          />
+    <param name="scan_frame_id"   value="rplidar_laser"                  />
+    <param name="scan_topic"      value="scan1"                         />
+    <param name="save_to"         value="/home/arc/Desktop/scan_clouds/" />
+  </node>
+</launch>

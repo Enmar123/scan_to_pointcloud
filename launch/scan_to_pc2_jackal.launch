@@ -1,0 +1,11 @@
+<!--
+  Launch file for scan_to_pc2 which remaps the desired LaserScan
+  message into a PointCloud2 message.
+-->
+
+<launch>
+  <node pkg="jackal-pc" type="scan_to_pc2.py" name="scan_to_pc2" >
+    <param name="scan_name" value="scan1" />
+    <param name="pc2_name"  value="pointcloud1" />
+  </node>
+</launch>
