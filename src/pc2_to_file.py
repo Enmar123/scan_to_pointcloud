@@ -9,8 +9,9 @@ import tf
 import io
 import time
 import struct
-from datetime import datetime
+import fileinput
 import numpy as np
+from datetime import datetime
 from pyquaternion import Quaternion
 
 def pc2msg_to_points_old(msg):
@@ -159,20 +160,31 @@ class RosNode:
         # ROS Process
         self.listener = tf.TransformListener()
         rospy.Subscriber( "/rs435_camera/depth/color/points", PointCloud2, self.callback )
-        #rospy.Subscriber( "pointcloud2", PointCloud2, self.callback )
-        rospy.on_shutdown(self.my_hook)
+        #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
+        #rospy.on_shutdown(self.my_hook)
         rospy.spin()
+#    
+#    def my_hook(self):
+#        self.f.close()
+#
+#        with open(self.filepath, 'a') as f:
+#            try:
+#                f.writelines('element vertex %s\n'%(str(self.n_points)))[2]
+#            except IOError:
+#                f.close()
+#            finally:
+#                f.close()
     
     def my_hook(self):
+        #while self.is_writing:
         self.f.close()
-
-        with open(self.filepath, 'a') as f:
-            try:
-                f.writelines('element vertex %s \n'%(str(self.n_points)))[2]
-            except IOError:
-                f.close()
-            finally:
-                f.close()
+        i = 0
+        for  line in fileinput.FileInput(self.filepath, inplace=1):
+            if line == 2:
+                line = 'element vertex %s\n'%(str(self.n_points))
+                break
+            else:
+                i += 1
         
         
 
