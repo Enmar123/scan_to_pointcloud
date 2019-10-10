@@ -123,8 +123,8 @@ def rgbval_to_rgb(rgbval):
     bin1 = binTest[ 0: 8]
     bin2 = binTest[ 8:16]
     bin3 = binTest[16:24]
-    #bin4 = binTest[24:32]
-    rgb = [int(bin1,2),int(bin2,2),int(bin3,2)]
+    bin4 = binTest[24:32]
+    rgb = [int(bin4,2),int(bin3,2),int(bin2,2)] #This is the proper read order for rgb
     return rgb
     
 def expand_names(names):
@@ -159,7 +159,7 @@ class RosNode:
         
         # ROS Process
         self.listener = tf.TransformListener()
-        rospy.Subscriber( "/rs435_camera/depth/color/points", PointCloud2, self.callback )
+        rospy.Subscriber( "/rgb_cloud", PointCloud2, self.callback )
         #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
         #rospy.on_shutdown(self.my_hook)
         rospy.spin()
@@ -226,7 +226,7 @@ class RosNode:
             
         while not rospy.is_shutdown():
             try:
-                (trans, quat) = self.listener.lookupTransform("ekf_odom", msg.header.frame_id, rospy.Time(0) )
+                (trans, quat) = self.listener.lookupTransform("base_link", msg.header.frame_id, rospy.Time(0) )
             except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
                 continue
             break
@@ -234,11 +234,12 @@ class RosNode:
         points = pc2msg_to_points(msg)                 # Extract info from message data 
         points = transform_points(trans, quat, points) # Transform position data
         points = expand_color(points, self.names_old)  # Unpack RGB data
-        self.writePoints(points)                       # Write points to file
+        #self.writePoints(points)                       # Write points to file
         self.n_points += len(points)                   # Update pointcloud size 
         
         t1 = time.time()
-        rospy.loginfo("rate = %s"%str(self.check_rate(t1-t0)))
+        #rospy.loginfo("rate = %s"%str(self.check_rate(t1-t0)))
+        rospy.loginfo(points[0])
 
         
 if __name__=="__main__":
