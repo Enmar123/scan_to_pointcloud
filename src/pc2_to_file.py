@@ -6,25 +6,25 @@ from sensor_msgs.msg import PointCloud2
 import sensor_msgs.point_cloud2
 import tf
 
-import io
+#import io
 import time
 import struct
 import in_place
-import fileinput
+#import fileinput
 import numpy as np
 from datetime import datetime
-from pyquaternion import Quaternion
+#from pyquaternion import Quaternion
 
-def pc2msg_to_points_old(msg):
-    points = []
-    for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
-            x = point[0]
-            y = point[1]
-            z = point[2]
-            points.append([x,y,z])
-            #print(point)
-    return points
-    
+#def pc2msg_to_points_old(msg):
+#    points = []
+#    for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
+#            x = point[0]
+#            y = point[1]
+#            z = point[2]
+#            points.append([x,y,z])
+#            #print(point)
+#    return points
+#    
 #def pc2msg_to_points(msg):
 #    points = np.array(sensor_msgs.point_cloud2.read_points(msg, skip_nans=True))
 #    return points
@@ -54,8 +54,6 @@ def expand_color(points, names):
     else:
         return points
     return points_new
-        
-    
     
 def transform_points(trans, quat, points):
     """ transfomrs the xyz of point data, (rate = 45 using sicktim laser) """ 
@@ -67,34 +65,6 @@ def transform_points(trans, quat, points):
         point_new = xyz + point[3:]
         points_new.append(point_new)
     return points_new
-    
-def transform_points2(trans, quat, points):
-    """Attempt to speed up tf_points using list comp, cant quite get it to 
-       work (rate = ??)"""
-    #print points[0]
-    points_new = [qv_mult(quat, point[0:3]) for point in points]  + [1,2,3] 
-    #print points_new[0]
-    points_new = [[1,2,3] for point in points]  + [1,2,3] 
-    #points = [np.concatenate(translation(trans, point[0:3]), point[3:]) for point in points]
-    return points
-    
-def transform_points3(trans, quat, points):
-    """Attempt to speed up tf_points using another quaternion calc but it
-       is actually slower (rate = 33)"""
-    points = np.array(points)
-    vs = points[:,0:3]
-    # Rotate Points
-    w,x,y,z = quat[3], quat[0], quat[1], quat[2]
-    q = Quaternion(w,x,y,z)
-    vs_mod = []
-    for v in vs:
-        vs_mod.append(q.rotate(v))
-    # Translate points
-    vs_mod = np.array(vs_mod) + trans
-    # Recombine
-    points[:,0:3] = vs_mod
-    #print points[0]    
-    return points
     
 def translation(trans, xyz):
     x = trans[0] + xyz[0]
@@ -118,14 +88,13 @@ def qv_mult(q1, v1):
 def binary(num):
     return ''.join(bin(ord(c)).replace('0b', '').rjust(8, '0') for c in struct.pack('!f', num))
 
-
 def rgbval_to_rgb(rgbval):
     binTest = binary(rgbval)
     bin1 = binTest[ 0: 8]
     bin2 = binTest[ 8:16]
     bin3 = binTest[16:24]
     bin4 = binTest[24:32]
-    rgb = [int(bin4,2),int(bin3,2),int(bin2,2)] #This is the proper read order for rgb
+    rgb = [int(bin2,2),int(bin3,2),int(bin4,2)] #This is the read order for rgb
     return rgb
     
 def expand_names(names):
@@ -167,34 +136,17 @@ class RosNode:
         #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
         rospy.on_shutdown(self.my_hook)
         rospy.spin()
-#    
-#    def my_hook(self):
-#        self.f.close()
-#
-#        with open(self.filepath, 'a') as f:
-#            try:
-#                f.writelines('element vertex %s\n'%(str(self.n_points)))[2]
-#            except IOError:
-#                f.close()
-#            finally:
-#                f.close()
     
     def my_hook(self):
         # Wait for file to fisnish writing
-        while not rospy.is_shutdown:
-            try:
-                self.f.close()
-            except:
-                time.sleep(0.1)
-                continue
-            break
-        rospy.loginfo("shutting down: writing finished")
-        # Count lines in file
-#        n_lines = 0
-#        with open(self.filepath) as infile:
-#            for line in infile:
-#                n_lines += 1
-#        rospy.loginfo("shutting down: line count =%d"%n_lines)        
+#        while not rospy.is_shutdown:
+#            try:
+#                self.f.close()
+#            except:
+#                time.sleep(0.1)
+#                continue
+#            break
+        rospy.loginfo("shutting down: writing element vertex")    
         # Replace point-count line
         i_lines = 0
         with in_place.InPlace(self.filepath) as myfile:
@@ -205,47 +157,35 @@ class RosNode:
                     pass
                 i_lines += 1
                 myfile.write(line)
-                
-                
-        
 
     def writeHeader(self, names):
-            a = 'ply'
-            b = 'format ascii 1.0'
-            c = 'element vertex %s'%(str(self.n_points))
-            lines = [a, b, c]
-            for name in names:
-                if name == "red" or name == "green" or name == "blue":
-                    desc  = "property uchar %s"%(name)
-                else:
-                    desc  = "property float %s"%(name)
-                lines.append(desc)
-            j = 'end_header'
-            lines.append(j)
-            with open(self.filepath, "a") as myfile:
-                for line in lines:
-                    myfile.write(line + '\n')
+        a = 'ply'
+        b = 'format ascii 1.0'
+        c = 'element vertex %s'%(str(self.n_points))
+        lines = [a, b, c]
+        for name in names:
+            if name == "red" or name == "green" or name == "blue":
+                desc  = "property uchar %s"%(name)
+            else:
+                desc  = "property float %s"%(name)
+            lines.append(desc)
+        j = 'end_header'
+        lines.append(j)
+        with open(self.filepath, "a") as myfile:
+            for line in lines:
+                myfile.write(line + '\n')
             
     def writePoints(self, points):
-        for line in points:
-            for value in line:
-                self.f.write(str(value) + " ")
-            self.f.write("\n")
-            
-    def writePoints2(self, points):
         with open(self.filepath, "a") as myfile:
             for line in points:
                 str_list = [str(val) for val in line]
                 my_line = " ".join(str_list) + "\n"
                 myfile.write(my_line)
-            
-    
     
     def check_rate(self, time):
         self.times.append(time)
         if len(self.times) > 100:
-            self.times.pop(0)
-            
+            self.times.pop(0)     
         rate = 1/(sum(self.times)/len(self.times))
         return rate         
         
@@ -268,7 +208,7 @@ class RosNode:
         points = pc2msg_to_points(msg)                 # Extract info from message data 
         points = transform_points(trans, quat, points) # Transform position data
         points = expand_color(points, self.names_old)  # Unpack RGB data
-        self.writePoints2(points)                       # Write points to file
+        self.writePoints(points)                       # Write points to file
         self.n_points += len(points)                   # Update pointcloud size 
         
         t1 = time.time()
@@ -279,8 +219,7 @@ class RosNode:
 if __name__=="__main__":
     try:
         node = RosNode()
-    except rospy.ROSInterruptException:
-        #node.f.close()        
+    except rospy.ROSInterruptException:        
         pass
         
         
