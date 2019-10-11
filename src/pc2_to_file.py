@@ -37,7 +37,32 @@ def pc2msg_to_points(msg):
             values.append(value)
         points.append(values)
     return points
+    
+### RGB section ### ----------------------------------------------------------
+    
+def convert(i):         #for point field with type 6
+    i = i % 4294967296
+    n4 = i % 256
+    i = i / 256
+    n3 = i % 256
+    i = i / 256
+    n2 = i % 256
+    n1 = i / 256
+    #return (n1,n2,n3,n4)
+    return [n2, n3, n4]
 
+def binary(num):
+    return ''.join(bin(ord(c)).replace('0b', '').rjust(8, '0') for c in struct.pack('!f', num))
+
+def rgbval_to_rgb(rgbval):   # for point field with type 7
+    binTest = binary(rgbval)
+    bin1 = binTest[ 0: 8]
+    bin2 = binTest[ 8:16]
+    bin3 = binTest[16:24]
+    bin4 = binTest[24:32]
+    rgb = [int(bin2,2),int(bin3,2),int(bin4,2)] #This is the read order for rgb
+    return rgb
+    
 def expand_color(points, names):
     i_rgb = None
     try:
@@ -48,12 +73,14 @@ def expand_color(points, names):
     if i_rgb is not None:
         for point in points:
             point_new = point[0:i_rgb]
-            point_new = point_new + rgbval_to_rgb(point[i_rgb])
+            point_new = point_new + convert(point[i_rgb])
             point_new = point_new + point[i_rgb+1:]
             points_new.append(point_new)
     else:
         return points
     return points_new
+    
+### XYZ Section ### -----------------------------------------------------------
     
 def transform_points(trans, quat, points):
     """ transfomrs the xyz of point data, (rate = 45 using sicktim laser) """ 
@@ -85,18 +112,6 @@ def qv_mult(q1, v1):
     vector = unit_vector * vector_len
     return list(vector)
     
-def binary(num):
-    return ''.join(bin(ord(c)).replace('0b', '').rjust(8, '0') for c in struct.pack('!f', num))
-
-def rgbval_to_rgb(rgbval):
-    binTest = binary(rgbval)
-    bin1 = binTest[ 0: 8]
-    bin2 = binTest[ 8:16]
-    bin3 = binTest[16:24]
-    bin4 = binTest[24:32]
-    rgb = [int(bin2,2),int(bin3,2),int(bin4,2)] #This is the read order for rgb
-    return rgb
-    
 def expand_names(names):
     names_new = []
     for name in names:
@@ -127,8 +142,8 @@ class RosNode:
         self.seq = 0
         self.times = []
         
-        f = open(self.filepath, "w")
-        f.close()
+        self.f = open(self.filepath, "w")
+        self.f.close()
         
         # ROS Process
         self.listener = tf.TransformListener()
