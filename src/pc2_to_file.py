@@ -9,6 +9,7 @@ import tf
 import io
 import time
 import struct
+import in_place
 import fileinput
 import numpy as np
 from datetime import datetime
@@ -141,12 +142,14 @@ class RosNode:
         rospy.loginfo("Starting Node: pc2_to_file")        
         rospy.init_node("pc2_to_file")        
         # Load ROS Params
+        self.target_frame = rospy.get_param('~target_frame')
+        pc2_topic         = rospy.get_param('~pc2_topic')
+        save_to           = rospy.get_param('~save_to')
         
         # Load Class Params
         now = datetime.now()
         self.date_time = now.strftime("%Y-%m-%d-%H-%M-%S")
-        self.saveto = "/home/arc/pointclouds/jason/"
-        self.filepath = self.saveto + "point-cloud_%s.ply"%(self.date_time)
+        self.filepath = save_to + "point-cloud_%s.ply"%(self.date_time)
 
         self.is_first_callback = True
         self.n_points = 0
@@ -155,13 +158,14 @@ class RosNode:
         self.seq = 0
         self.times = []
         
-        self.f = open(self.filepath, "w")         
+        f = open(self.filepath, "w")
+        f.close()
         
         # ROS Process
         self.listener = tf.TransformListener()
-        rospy.Subscriber( "/rgb_cloud", PointCloud2, self.callback )
+        rospy.Subscriber( pc2_topic, PointCloud2, self.callback )
         #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
-        #rospy.on_shutdown(self.my_hook)
+        rospy.on_shutdown(self.my_hook)
         rospy.spin()
 #    
 #    def my_hook(self):
@@ -176,36 +180,66 @@ class RosNode:
 #                f.close()
     
     def my_hook(self):
-        #while self.is_writing:
-        self.f.close()
-        i = 0
-        for  line in fileinput.FileInput(self.filepath, inplace=1):
-            if line == 2:
-                line = 'element vertex %s\n'%(str(self.n_points))
-                break
-            else:
-                i += 1
-        
+        # Wait for file to fisnish writing
+        while not rospy.is_shutdown:
+            try:
+                self.f.close()
+            except:
+                time.sleep(0.1)
+                continue
+            break
+        rospy.loginfo("shutting down: writing finished")
+        # Count lines in file
+#        n_lines = 0
+#        with open(self.filepath) as infile:
+#            for line in infile:
+#                n_lines += 1
+#        rospy.loginfo("shutting down: line count =%d"%n_lines)        
+        # Replace point-count line
+        i_lines = 0
+        with in_place.InPlace(self.filepath) as myfile:
+            for line in myfile:
+                if i_lines == 2:
+                    line = 'element vertex %s\n'%(str(self.n_points))
+                else:
+                    pass
+                i_lines += 1
+                myfile.write(line)
+                
+                
         
 
     def writeHeader(self, names):
-        a = 'ply'
-        b = 'format ascii 1.0'
-        c = 'element vertex %s'%(str(self.n_points))
-        lines = [a, b, c]
-        for name in names:
-            desc  = "property float %s"%(name)
-            lines.append(desc)
-        j = 'end_header'
-        lines.append(j)
-        for line in lines:
-            self.f.write(line + '\n')
+            a = 'ply'
+            b = 'format ascii 1.0'
+            c = 'element vertex %s'%(str(self.n_points))
+            lines = [a, b, c]
+            for name in names:
+                if name == "red" or name == "green" or name == "blue":
+                    desc  = "property uchar %s"%(name)
+                else:
+                    desc  = "property float %s"%(name)
+                lines.append(desc)
+            j = 'end_header'
+            lines.append(j)
+            with open(self.filepath, "a") as myfile:
+                for line in lines:
+                    myfile.write(line + '\n')
             
     def writePoints(self, points):
         for line in points:
             for value in line:
                 self.f.write(str(value) + " ")
             self.f.write("\n")
+            
+    def writePoints2(self, points):
+        with open(self.filepath, "a") as myfile:
+            for line in points:
+                str_list = [str(val) for val in line]
+                my_line = " ".join(str_list) + "\n"
+                myfile.write(my_line)
+            
+    
     
     def check_rate(self, time):
         self.times.append(time)
@@ -226,7 +260,7 @@ class RosNode:
             
         while not rospy.is_shutdown():
             try:
-                (trans, quat) = self.listener.lookupTransform("base_link", msg.header.frame_id, rospy.Time(0) )
+                (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
             except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
                 continue
             break
@@ -234,7 +268,7 @@ class RosNode:
         points = pc2msg_to_points(msg)                 # Extract info from message data 
         points = transform_points(trans, quat, points) # Transform position data
         points = expand_color(points, self.names_old)  # Unpack RGB data
-        #self.writePoints(points)                       # Write points to file
+        self.writePoints2(points)                       # Write points to file
         self.n_points += len(points)                   # Update pointcloud size 
         
         t1 = time.time()
