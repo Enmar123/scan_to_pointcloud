@@ -12,6 +12,7 @@ from std_msgs.msg import Empty
 import sensor_msgs.point_cloud2
 import tf
 
+import threading
 import struct
 import in_place
 import numpy as np
@@ -84,7 +85,15 @@ def convert_rgb(pts, msg):
             pt_new = pt[0:i_rgb] + rgb + pt[i_rgb+1:]
             pts_new.append(pt_new)
         return pts_new
-        
+  
+def expand_names(names):
+    names_new = []
+    for name in names:
+        if name == "rgb":
+            names_new = names_new + ["red", "green", "blue"]
+        else:
+            names_new.append(name)
+    return names_new      
     
 ### XYZ Section ### -----------------------------------------------------------
     
@@ -118,14 +127,35 @@ def qv_mult(q1, v1):
     vector = unit_vector * vector_len
     return list(vector)
     
-def expand_names(names):
-    names_new = []
-    for name in names:
-        if name == "rgb":
-            names_new = names_new + ["red", "green", "blue"]
+def thread_function(ptss, index, trans, quat, points):
+    pts = transform_points(trans, quat, points)     # Transform position data
+    ptss[index] = pts                               # Store transformed points
+    
+def pts_tf_threader(n_threads, trans, quat, pts):
+    ptss= [None]*n_threads
+    # figure out how to divide up the points
+    n_pts = len(pts)  
+    l = n_pts/n_threads                 # len of typical thread
+    ln = n_pts - l*(n_threads-1)        # len of longer thread
+    # dividee up the points
+    for i in range(n_threads):
+        if i == 0:
+            ptss[i] = pts[0:ln]
         else:
-            names_new.append(name)
-    return names_new
+            ptss[i] = pts[ln + (i-1)*l:ln + i*l]
+    
+    threads = list()
+    for index in range(n_threads):
+        x = threading.Thread(target=thread_function, args=(ptss, index, trans, quat, ptss[index]))
+        threads.append(x)
+        x.start()
+
+    for index, thread in enumerate(threads):
+        thread.join()
+        
+    pts = [pt for pt in pts for pts in ptss]
+    return pts
+
 
 ### Rosnode Section ### ------------------------------------------------------
 
@@ -221,6 +251,7 @@ class RosNode:
                 continue
             break
         return (trans, quat)
+    
         
     def callback(self, msg):
         if self.is_exiting == True:
@@ -233,10 +264,11 @@ class RosNode:
             else:
                 (trans, quat) = self.get_tf()                  # Obtain the transform between the points frame_id and the goal frame_id
                         
-                points = pc2_to_pts(msg)                       # Extract point info from message data 
-                points = transform_points(trans, quat, points) # Transform position data
-                self.writePoints(points)                       # Write points to file
-                self.pub.publish(Empty())                      # Pub when data is_recorded (to check hz)
+                points = pc2_to_pts(msg)                                        # Extract point info from message data 
+                #points = transform_points(trans, quat, points)                  # Transform position data
+                points = pts_tf_threader(4, trans, quat, points)           # Transform position data (threaded)
+                self.writePoints(points)                                        # Write points to file
+                self.pub.publish(Empty())                                       # Pub when data is_recorded (to check hz)
 
         
 if __name__=="__main__":
