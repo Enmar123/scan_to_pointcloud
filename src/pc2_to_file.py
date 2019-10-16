@@ -1,35 +1,24 @@
 #!/usr/bin/env python
 
+"""
+My notes:
+Tested up to 20000 pts at 1hz
+fails at 20000 pts at 5hz
+"""
 import rospy
 
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Empty
 import sensor_msgs.point_cloud2
 import tf
 
 #import io
 import sys
-import time
 import struct
 import signal
 import in_place
-#import fileinput
 import numpy as np
 from datetime import datetime
-#from pyquaternion import Quaternion
-
-#def pc2msg_to_points_old(msg):
-#    points = []
-#    for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
-#            x = point[0]
-#            y = point[1]
-#            z = point[2]
-#            points.append([x,y,z])
-#            #print(point)
-#    return points
-#    
-#def pc2msg_to_points(msg):
-#    points = np.array(sensor_msgs.point_cloud2.read_points(msg, skip_nans=True))
-#    return points
     
 def pc2_read_data(msg):
     points = []
@@ -41,15 +30,14 @@ def pc2_read_data(msg):
     return points
     
 def pc2_to_pts(msg):
-    pts = pc2_read_data(msg)
-    #print pts[0]
+    pts = pc2_read_data(msg)     # extracts field data based on dtype
     pts = convert_rgb(pts, msg)  # Converts rgb field if it is present
     print pts[0]    
     return pts
     
 ### RGB section ### ----------------------------------------------------------
     
-def convert_dtype6(i):         #for point field with type 6
+def convert_dtype6(i):         #for point field with dtype 6
     i = i % 4294967296
     n4 = i % 256
     i = i / 256
@@ -59,13 +47,12 @@ def convert_dtype6(i):         #for point field with type 6
     n1 = i / 256
     #return (n1,n2,n3,n4)
     rgb = [n2, n3, n4]
-    #print rgb
-    return [n2, n3, n4]  # return rgb # flip this one possibly
+    return rgb
 
 def binary(num):
     return ''.join(bin(ord(c)).replace('0b', '').rjust(8, '0') for c in struct.pack('!f', num))
 
-def convert_dtype7(rgbval):   # for point field with type 7
+def convert_dtype7(rgbval):   # for point field with dtype 7
     binTest = binary(rgbval)
     bin1 = binTest[ 0: 8]
     bin2 = binTest[ 8:16]
@@ -73,23 +60,6 @@ def convert_dtype7(rgbval):   # for point field with type 7
     bin4 = binTest[24:32]
     rgb = [int(bin2,2),int(bin3,2),int(bin4,2)] #This is the read order for rgb
     return rgb
-    
-#def expand_color(points, names):
-#    i_rgb = None
-#    try:
-#        i_rgb = names.index("rgb")
-#    except ValueError:
-#        pass
-#    points_new = []
-#    if i_rgb is not None:
-#        for point in points:
-#            point_new = point[0:i_rgb]
-#            point_new = point_new + convert(point[i_rgb])
-#            point_new = point_new + point[i_rgb+1:]
-#            points_new.append(point_new)
-#    else:
-#        return points
-#    return points_new
     
 def convert_type(dtype, rgbval):
     if dtype == 6:
@@ -187,11 +157,12 @@ class RosNode:
         self.f = None
         self.is_exiting = False
         
-        signal.signal(signal.SIGINT, self.my_hook)
+        signal.signal(signal.SIGINT, self.my_hook) # handles ctrl-c
         
         # ROS Process
         self.listener = tf.TransformListener()
         rospy.Subscriber( pc2_topic, PointCloud2, self.callback )
+        self.pub = rospy.Publisher( "is_recorded", Empty, queue_size=10 )
         #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
         #rospy.on_shutdown(self.my_hook)
         rospy.spin()
@@ -201,16 +172,6 @@ class RosNode:
         if self.f is None:
             pass
         else:
-            # Wait for file to fisnish writing
-#            while not rospy.is_shutdown:
-#                try:
-#                    self.f.close()
-#                except:
-#                    time.sleep(0.1)
-#                    continue
-#                break
-#            rospy.loginfo("shutting down: writing element vertex")    
-#            # Replace point-count line
             i_lines = 0
             with in_place.InPlace(self.filepath) as myfile:
                 for line in myfile:
@@ -255,14 +216,7 @@ class RosNode:
             for line in points:
                 str_list = [str(val) for val in line]
                 my_line = " ".join(str_list) + "\n"
-                myfile.write(my_line)
-    
-    def check_rate(self, time):
-        self.times.append(time)
-        if len(self.times) > 100:
-            self.times.pop(0)     
-        rate = 1/(sum(self.times)/len(self.times))
-        return rate         
+                myfile.write(my_line)        
         
     def callback(self, msg):
         if self.is_exiting == True:
@@ -273,7 +227,6 @@ class RosNode:
             if msg.data == []:
                 pass
             else:
-                #t0 = time.time()
                 while not rospy.is_shutdown():
                     try:
                         (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
@@ -285,11 +238,7 @@ class RosNode:
                 points = pc2_to_pts(msg)                       # Extract point info from message data 
                 points = transform_points(trans, quat, points) # Transform position data
                 self.writePoints(points)                       # Write points to file
-            
-            
-            #t1 = time.time()
-            #rospy.loginfo("rate = %s"%str(self.check_rate(t1-t0)))
-            #rospy.loginfo(points[0])
+                self.pub.publish(Empty())
 
         
 if __name__=="__main__":
@@ -297,7 +246,7 @@ if __name__=="__main__":
         node = RosNode()
     except (rospy.ROSInterruptException, KeyboardInterrupt) as e:
         node.my_hook()
-        #sys.exit()
+
         
         
         
