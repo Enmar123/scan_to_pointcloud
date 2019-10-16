@@ -7,8 +7,10 @@ import sensor_msgs.point_cloud2
 import tf
 
 #import io
+import sys
 import time
 import struct
+import signal
 import in_place
 #import fileinput
 import numpy as np
@@ -163,13 +165,13 @@ class RosNode:
         rospy.loginfo("Starting Node: pc2_to_file")        
         rospy.init_node("pc2_to_file")        
         # Load ROS Params
-#        self.target_frame = rospy.get_param('~target_frame')
-#        pc2_topic         = rospy.get_param('~pc2_topic')
-#        save_to           = rospy.get_param('~save_to')
+        self.target_frame = rospy.get_param('~target_frame')
+        pc2_topic         = rospy.get_param('~pc2_topic')
+        save_to           = rospy.get_param('~save_to')
         
-        self.target_frame = "ekf_odom"
-        pc2_topic         = "rs435_camera/depth/color/points"
-        save_to           = "/home/arc/pointclouds/jason/"
+#        self.target_frame = "ekf_odom"
+#        pc2_topic         = "rs435_camera/depth/color/points"
+#        save_to           = "/home/arc/pointclouds/jason/"
         
         # Load Class Params
         now = datetime.now()
@@ -177,48 +179,54 @@ class RosNode:
         self.filepath = save_to + "point-cloud_%s.ply"%(self.date_time)
 
         self.is_first_callback = True
-        self.n_points = 0
+        self.n_points = []
         self.names_old = None
         self.names_new = None
         self.seq = 0
         self.times = []
         self.f = None
+        self.is_exiting = False
+        
+        signal.signal(signal.SIGINT, self.my_hook)
         
         # ROS Process
         self.listener = tf.TransformListener()
         rospy.Subscriber( pc2_topic, PointCloud2, self.callback )
         #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
-        rospy.on_shutdown(self.my_hook)
+        #rospy.on_shutdown(self.my_hook)
         rospy.spin()
     
-    def my_hook(self):
+    def my_hook(self, sig, frame):
+        self.is_exiting = True
         if self.f is None:
             pass
         else:
             # Wait for file to fisnish writing
-            while not rospy.is_shutdown:
-                try:
-                    self.f.close()
-                except:
-                    time.sleep(0.1)
-                    continue
-                break
-            rospy.loginfo("shutting down: writing element vertex")    
-            # Replace point-count line
+#            while not rospy.is_shutdown:
+#                try:
+#                    self.f.close()
+#                except:
+#                    time.sleep(0.1)
+#                    continue
+#                break
+#            rospy.loginfo("shutting down: writing element vertex")    
+#            # Replace point-count line
             i_lines = 0
             with in_place.InPlace(self.filepath) as myfile:
                 for line in myfile:
                     if i_lines == 2:
-                        line = 'element vertex %s\n'%(str(self.n_points))
+                        line = 'element vertex %s\n'%(str(sum(self.n_points)))
                     else:
                         pass
                     i_lines += 1
                     myfile.write(line)
+        print("pts =", (sum(self.n_points)))
+        sys.exit(0)
 
     def writeHeader(self, names):
         a = 'ply'
         b = 'format ascii 1.0'
-        c = 'element vertex %s'%(str(self.n_points))
+        c = 'element vertex %s'%("000")
         lines = [a, b, c]
         for name in names:
             if name == "red" or name == "green" or name == "blue":
@@ -257,26 +265,29 @@ class RosNode:
         return rate         
         
     def callback(self, msg):
-        self.n_points += int(len(msg.data)/msg.point_step)                   # Update pointcloud size 
-        self.msg = msg
-        if msg.data == []:
-            pass
+        if self.is_exiting == True:
+            pass                             # ignore callbacks if exiting
         else:
-            t0 = time.time()
-            while not rospy.is_shutdown():
-                try:
-                    (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
-                except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-                    continue
-                break
+            self.n_points.append(int(len(msg.data)/msg.point_step))                   # Update pointcloud size 
+            self.msg = msg
+            if msg.data == []:
+                pass
+            else:
+                #t0 = time.time()
+                while not rospy.is_shutdown():
+                    try:
+                        (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
+                    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+                        continue
+                    break
+                
+                        
+                points = pc2_to_pts(msg)                       # Extract point info from message data 
+                points = transform_points(trans, quat, points) # Transform position data
+                self.writePoints(points)                       # Write points to file
             
-                    
-            points = pc2_to_pts(msg)                       # Extract info from message data 
-            points = transform_points(trans, quat, points) # Transform position data
-            self.writePoints(points)                       # Write points to file
             
-            
-            t1 = time.time()
+            #t1 = time.time()
             #rospy.loginfo("rate = %s"%str(self.check_rate(t1-t0)))
             #rospy.loginfo(points[0])
 
@@ -284,8 +295,9 @@ class RosNode:
 if __name__=="__main__":
     try:
         node = RosNode()
-    except rospy.ROSInterruptException:        
-        pass
+    except (rospy.ROSInterruptException, KeyboardInterrupt) as e:
+        node.my_hook()
+        #sys.exit()
         
         
         
