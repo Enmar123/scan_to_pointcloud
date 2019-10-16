@@ -12,10 +12,7 @@ from std_msgs.msg import Empty
 import sensor_msgs.point_cloud2
 import tf
 
-#import io
-import sys
 import struct
-import signal
 import in_place
 import numpy as np
 from datetime import datetime
@@ -30,8 +27,8 @@ def pc2_read_data(msg):
     return points
     
 def pc2_to_pts(msg):
-    pts = pc2_read_data(msg)     # extracts field data based on dtype
-    pts = convert_rgb(pts, msg)  # Converts rgb field if it is present
+    pts = pc2_read_data(msg)     # Extracts field data based on dtype
+    pts = convert_rgb(pts, msg)  # Unpacks rgb field if it is present
     print pts[0]    
     return pts
     
@@ -130,6 +127,8 @@ def expand_names(names):
             names_new.append(name)
     return names_new
 
+### Rosnode Section ### ------------------------------------------------------
+
 class RosNode:
     def __init__(self):
         rospy.loginfo("Starting Node: pc2_to_file")        
@@ -156,18 +155,15 @@ class RosNode:
         self.times = []
         self.f = None
         self.is_exiting = False
-        
-        signal.signal(signal.SIGINT, self.my_hook) # handles ctrl-c
-        
+                
         # ROS Process
         self.listener = tf.TransformListener()
         rospy.Subscriber( pc2_topic, PointCloud2, self.callback )
         self.pub = rospy.Publisher( "is_recorded", Empty, queue_size=10 )
-        #rospy.Subscriber( "pointcloud1", PointCloud2, self.callback )
-        #rospy.on_shutdown(self.my_hook)
+        rospy.on_shutdown(self.my_hook)
         rospy.spin()
     
-    def my_hook(self, sig, frame):
+    def my_hook(self):
         self.is_exiting = True
         if self.f is None:
             pass
@@ -182,7 +178,6 @@ class RosNode:
                     i_lines += 1
                     myfile.write(line)
         print("pts =", (sum(self.n_points)))
-        sys.exit(0)
 
     def writeHeader(self, names):
         a = 'ply'
@@ -216,36 +211,39 @@ class RosNode:
             for line in points:
                 str_list = [str(val) for val in line]
                 my_line = " ".join(str_list) + "\n"
-                myfile.write(my_line)        
+                myfile.write(my_line)
+                
+    def get_tf(self):
+        while not rospy.is_shutdown():
+            try:
+                (trans, quat) = self.listener.lookupTransform( self.target_frame, self.msg.header.frame_id, rospy.Time(0) )
+            except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+                continue
+            break
+        return (trans, quat)
         
     def callback(self, msg):
         if self.is_exiting == True:
             pass                             # ignore callbacks if exiting
         else:
-            self.n_points.append(int(len(msg.data)/msg.point_step))                   # Update pointcloud size 
+            self.n_points.append(int(len(msg.data)/msg.point_step))            # Update pointcloud size 
             self.msg = msg
-            if msg.data == []:
-                pass
+            if msg.data == []:              # if message holds no data
+                pass                        # do nothing
             else:
-                while not rospy.is_shutdown():
-                    try:
-                        (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
-                    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-                        continue
-                    break
-                
+                (trans, quat) = self.get_tf()                  # Obtain the transform between the points frame_id and the goal frame_id
                         
                 points = pc2_to_pts(msg)                       # Extract point info from message data 
                 points = transform_points(trans, quat, points) # Transform position data
                 self.writePoints(points)                       # Write points to file
-                self.pub.publish(Empty())
+                self.pub.publish(Empty())                      # Pub when data is_recorded (to check hz)
 
         
 if __name__=="__main__":
     try:
         node = RosNode()
     except (rospy.ROSInterruptException, KeyboardInterrupt) as e:
-        node.my_hook()
+        pass   
 
         
         
