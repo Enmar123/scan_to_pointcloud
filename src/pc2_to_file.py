@@ -17,6 +17,7 @@ import struct
 import in_place
 import numpy as np
 from datetime import datetime
+from multiprocessing import Process, cpu_count
     
 def pc2_read_data(msg):
     points = []
@@ -155,6 +156,31 @@ def pts_tf_threader(n_threads, trans, quat, pts):
         
     pts = [pt for points in ptss for pt in points]  # corrected order?
     return pts
+    
+def pts_tf_multiprocess(n_threads, trans, quat, pts):
+    ptss= [None]*n_threads
+    # figure out how to divide up the points
+    n_pts = len(pts)  
+    l = n_pts/n_threads                 # len of typical thread
+    ln = n_pts - l*(n_threads-1)        # len of longer thread
+    # dividee up the points
+    for i in range(n_threads):
+        if i == 0:
+            ptss[i] = pts[0:ln]
+        else:
+            ptss[i] = pts[ln + (i-1)*l:ln + i*l]
+    
+    processes = list()
+    for index in range(n_threads):
+        x = Process(target=thread_function, args=(ptss, index, trans, quat))
+        processes.append(x)
+        x.start()
+
+    for process in processes:
+        process.join()
+        
+    pts = [pt for points in ptss for pt in points]  # corrected order?
+    return pts
 
 
 ### Rosnode Section ### ------------------------------------------------------
@@ -263,9 +289,10 @@ class RosNode:
                 pass                        # do nothing
             else:
                 (trans, quat) = self.get_tf()                                   # Obtain the proper transform                         
-                points = pc2_to_pts(msg)                                        # Extract point info from message data (30->16) 100%
-                #points = transform_points(trans, quat, points)                 # Transform position data (16->2) 700%
-                points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (16->1.8)
+                points = pc2_to_pts(msg)                                        # Extract point info from message data (30->11.5)
+                #points = transform_points(trans, quat, points)                  # Transform position data (11.5->1.5)
+                #points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (11.5->1.1)
+                points = pts_tf_multiprocess(cpu_count(), trans, quat, points)  # Transform position data (multiproceess) (16->3.6)
                 #self.writePoints(points)                                        # Write points to file(2->1.6) 25%
                 self.pub.publish(Empty())                                       # Pub when data is_recorded (to check hz)
 
