@@ -127,8 +127,8 @@ def qv_mult(q1, v1):
     vector = unit_vector * vector_len
     return list(vector)
     
-def thread_function(ptss, index, trans, quat, points):
-    pts = transform_points(trans, quat, points)     # Transform position data
+def thread_function(ptss, index, trans, quat):
+    pts = transform_points(trans, quat, ptss[index])     # Transform position data
     ptss[index] = pts                               # Store transformed points
     
 def pts_tf_threader(n_threads, trans, quat, pts):
@@ -146,14 +146,14 @@ def pts_tf_threader(n_threads, trans, quat, pts):
     
     threads = list()
     for index in range(n_threads):
-        x = threading.Thread(target=thread_function, args=(ptss, index, trans, quat, ptss[index]))
+        x = threading.Thread(target=thread_function, args=(ptss, index, trans, quat))
         threads.append(x)
         x.start()
 
     for index, thread in enumerate(threads):
         thread.join()
         
-    pts = [pt for pt in pts for pts in ptss]
+    pts = [pt for points in ptss for pt in points]  # corrected order?
     return pts
 
 
@@ -262,12 +262,11 @@ class RosNode:
             if msg.data == []:              # if message holds no data
                 pass                        # do nothing
             else:
-                (trans, quat) = self.get_tf()                  # Obtain the transform between the points frame_id and the goal frame_id
-                        
-                points = pc2_to_pts(msg)                                        # Extract point info from message data 
-                #points = transform_points(trans, quat, points)                  # Transform position data
-                points = pts_tf_threader(4, trans, quat, points)           # Transform position data (threaded)
-                self.writePoints(points)                                        # Write points to file
+                (trans, quat) = self.get_tf()                                   # Obtain the proper transform                         
+                points = pc2_to_pts(msg)                                        # Extract point info from message data (30->16) 100%
+                #points = transform_points(trans, quat, points)                 # Transform position data (16->2) 700%
+                points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (16->1.8)
+                #self.writePoints(points)                                        # Write points to file(2->1.6) 25%
                 self.pub.publish(Empty())                                       # Pub when data is_recorded (to check hz)
 
         
