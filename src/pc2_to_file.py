@@ -19,7 +19,7 @@ import struct
 import in_place
 import numpy as np
 from datetime import datetime
-from multiprocessing import Process, Manager, cpu_count
+from multiprocessing import Process, Manager, Queue, cpu_count
     
 def pc2_read_data(msg):
     points = []
@@ -195,28 +195,29 @@ def mp_function(ptss, index, msg, tf):
 def pc2_multiprocess(n_process, msg, tf):
     trans, quat = tf
     manager = Manager()
-    ptss = manager.list(range(n_process))                                                      # holder for multiple list-of-points
+    ptss = manager.list(range(n_process))                                                    # holder for multiple list-of-points
+    #print("datalen=", len(msg.data))
+    #print("pointlen=", msg.width)
     # figure out how to divide up the points
-    n_pts = int(msg.width/msg.point_step)
+    n_pts = msg.width
     l = n_pts/n_process                                                         # len of typical thread
     ln = n_pts - l*(n_process-1)                                                # len of longest thread
     # Create empty copies of the message and assing them to a list
-#    data = msg.data                                                             # set data aside for later
-#    msg.data = []                                                               # set original message data as empty
+    data = msg.data                                                             # set data aside for later
+    msg.data = None                                                               # set original message data as empty
     msgs = [None]*n_process                                                     # Holder for multiple messages
-#    for index in range(n_process):
-#        msgs[index] = copy.deepcopy(msg)
+    for index in range(n_process):
+        msgs[index] = copy.deepcopy(msg)
     # Divide and assign the data to each message in the list
     for i in range(n_process):
         if i == 0:
-#            data_chunk = data[0 : ln*msg.point_step]
-#            msgs[i].data = data_chunk 
-#            msgs[i].width = len(data_chunk)
-            msgs[i] = msg
+            data_chunk = data[0 : ln*msg.point_step ]
+            msgs[i].data = data_chunk 
+            msgs[i].width = ln
         else:
             data_chunk = data[(ln + (i-1)*l)*msg.point_step : (ln + i*l)*msg.point_step]
             msgs[i].data = data_chunk
-            msgs[i].width = len(data_chunk)
+            msgs[i].width = l
             
     # Start multiprocessing with the divided messages
     processes = list()
@@ -224,7 +225,6 @@ def pc2_multiprocess(n_process, msg, tf):
         x = Process(target=mp_function, args=(ptss, index, msgs[index], tf))
         processes.append(x)
         x.start()
-        
     for process in processes:
         process.join()
     # Reassemble the lists of points into a sinle list of points
@@ -262,6 +262,7 @@ class RosNode:
         self.times = []
         self.f = None
         self.is_exiting = False
+        self.cpu_count = cpu_count()
                 
         # ROS Process
         self.listener = tf.TransformListener()
@@ -341,7 +342,7 @@ class RosNode:
             else:
                 #print("original = ", msg.data[0:20])
                 tf = self.get_tf()                                              # Obtain the proper transform                         
-                points = pc2_multiprocess(1, msg, tf)                 # Transform position data (multiproceess) (16->??)
+                points = pc2_multiprocess(self.cpu_count, msg, tf)                 # Transform position data (multiproceess) (16->??)
                 #points = pc2_to_pts(msg)                                        # Extract point info from message data (30->11.5)
                 #points = transform_points(trans, quat, points)                  # Transform position data (11.5->1.5)
                 #points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (11.5->1.1)
