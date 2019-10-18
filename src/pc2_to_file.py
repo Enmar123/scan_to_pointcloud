@@ -192,10 +192,10 @@ def mp_function(ptss, index, msg, tf):
     ptss[index] = pts                             # Store transformed points
     #print("output =", pts )
     
-def pc2_multiprocess(n_process, msg, tf):
+def pc2_multiprocess(n_process, msg, tf, ptss):
     trans, quat = tf
-    manager = Manager()
-    ptss = manager.list(range(n_process))                                                    # holder for multiple list-of-points
+#    manager = Manager()
+#    ptss = manager.list(range(n_process))                                                    # holder for multiple list-of-points
     #print("datalen=", len(msg.data))
     #print("pointlen=", msg.width)
     # figure out how to divide up the points
@@ -263,6 +263,9 @@ class RosNode:
         self.f = None
         self.is_exiting = False
         self.cpu_count = cpu_count()
+        #self.cpu_count = 5
+        manager = Manager()
+        self.ptss = manager.list(range(self.cpu_count))     # stores data from multiprocessing
                 
         # ROS Process
         self.listener = tf.TransformListener()
@@ -342,7 +345,7 @@ class RosNode:
             else:
                 #print("original = ", msg.data[0:20])
                 tf = self.get_tf()                                              # Obtain the proper transform                         
-                points = pc2_multiprocess(self.cpu_count, msg, tf)                 # Transform position data (multiproceess) (16->??)
+                points = pc2_multiprocess(self.cpu_count, msg, tf, self.ptss)                 # Transform position data (multiproceess) (30->3.6)
                 #points = pc2_to_pts(msg)                                        # Extract point info from message data (30->11.5)
                 #points = transform_points(trans, quat, points)                  # Transform position data (11.5->1.5)
                 #points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (11.5->1.1)
