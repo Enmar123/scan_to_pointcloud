@@ -4,6 +4,7 @@
 My notes:
 Tested up to 20000 pts at 1hz
 fails at 20000 pts at 5hz
+kek
 """
 import rospy
 #from roslib import message
@@ -20,7 +21,7 @@ import in_place
 import numpy as np
 from datetime import datetime
 from multiprocessing import Process, Manager, Queue, cpu_count
-    
+
 def pc2_read_data(msg):
     points = []
     for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
@@ -230,7 +231,7 @@ def pc2_multiprocess(n_process, msg, tf, ptss):
     # Reassemble the lists of points into a sinle list of points
     #print("msgs =", msgs[0][0:20])
     pts = [pt for points in ptss for pt in points]
-    print pts[0]
+#    print pts[0]
     return pts
 
 
@@ -255,13 +256,15 @@ class RosNode:
         self.filepath = save_to + "point-cloud_%s.ply"%(self.date_time)
 
         self.is_first_callback = True
-        self.n_points = []
+        self.is_exiting = False
+        self.is_busy = False
+        self.n_points = 0
+        self.n_writers = 0
         self.names_old = None
         self.names_new = None
         self.seq = 0
         self.times = []
         self.f = None
-        self.is_exiting = False
         self.cpu_count = cpu_count()
         #self.cpu_count = 5
         manager = Manager()
@@ -283,14 +286,16 @@ class RosNode:
             with in_place.InPlace(self.filepath) as myfile:
                 for line in myfile:
                     if i_lines == 2:
-                        line = 'element vertex %s\n'%(str(sum(self.n_points)))
+                        line = 'element vertex %d\n'%(self.n_points)
                     else:
                         pass
                     i_lines += 1
                     myfile.write(line)
-        print("pts =", (sum(self.n_points)))
+        rospy.loginfo("pc2_to_file: %d Points recorded"%(self.n_points))
 
-    def writeHeader(self, names):
+    def writeHeader(self, msg):
+        names = [field.name for field in msg.fields]
+        names = expand_names(names)
         a = 'ply'
         b = 'format ascii 1.0'
         c = 'element vertex %s'%("000")
@@ -308,26 +313,19 @@ class RosNode:
                 myfile.write(line + '\n')
             
     def writePoints(self, points):
-        if self.is_first_callback:
-            # Create file
-            self.f = open(self.filepath, "w")
-            self.f.close()
-            # Build header with field data
-            self.is_first_callback = False            
-            self.names_old = [field.name for field in self.msg.fields]
-            self.names_new = expand_names(self.names_old)
-            self.writeHeader(self.names_new)
-            
+        self.n_writers += 1
         with open(self.filepath, "a") as myfile:
             for line in points:
                 str_list = [str(val) for val in line]
                 my_line = " ".join(str_list) + "\n"
                 myfile.write(my_line)
+        self.n_points += len(points)
+        self.n_writers -= 1
                 
-    def get_tf(self):
+    def get_tf(self, msg):
         while not rospy.is_shutdown():
             try:
-                (trans, quat) = self.listener.lookupTransform( self.target_frame, self.msg.header.frame_id, rospy.Time(0) )
+                (trans, quat) = self.listener.lookupTransform( self.target_frame, msg.header.frame_id, rospy.Time(0) )
             except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
                 continue
             break
@@ -335,24 +333,32 @@ class RosNode:
     
         
     def callback(self, msg):
-        if self.is_exiting == True:
-            pass                             # ignore callbacks if exiting
+        if self.is_exiting or self.is_busy:
+            pass                             # ignore callbacks
+        elif self.is_first_callback:
+            self.is_busy = True
+            # Create file
+            self.f = open(self.filepath, "w")
+            self.f.close()
+            # Build header with field data
+            self.writeHeader(msg)
+            self.is_first_callback = False
+            self.is_busy = False
         else:
-            self.n_points.append(int(len(msg.data)/msg.point_step))            # Update pointcloud size 
-            self.msg = msg
             if msg.data == []:              # if message holds no data
                 pass                        # do nothing
             else:
-                #print("original = ", msg.data[0:20])
-                tf = self.get_tf()                                              # Obtain the proper transform                         
-                points = pc2_multiprocess(self.cpu_count, msg, tf, self.ptss)                 # Transform position data (multiproceess) (30->3.6)
-                #points = pc2_to_pts(msg)                                        # Extract point info from message data (30->11.5)
-                #points = transform_points(trans, quat, points)                  # Transform position data (11.5->1.5)
+                tf = self.get_tf(msg)  # Obtain the proper transform                         
+                (trans, quat) = tf
+                
+                #points = pc2_multiprocess(self.cpu_count, msg, tf, self.ptss)    # Transform position data (multiproceess) (30->3.6)
+                points = pc2_to_pts(msg)                                        # Extract point info from message data (30->11.5)
+                points = transform_points(trans, quat, points)                  # Transform position data (11.5->1.5)
                 #points = pts_tf_threader(4, trans, quat, points)                # Transform position data (threaded) (11.5->1.1)
                 #points = pts_tf_multiprocess(cpu_count(), trans, quat, points)  # Transform position data (multiproceess) (16->3.6)
-                #self.writePoints(points)                                        # Write points to file(2->1.6) 25%
+                self.writePoints(points)                                        # Write points to file(2->1.6) 25%
                 self.pub.publish(Empty())                                       # Pub when data is_recorded (to check hz)
-
+    
         
 if __name__=="__main__":
     try:
