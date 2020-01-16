@@ -4,9 +4,9 @@ maps it to the target_frame and saves the values as a space delimited file.
 -->
 
 <launch>
-  <node pkg="scan_to_pointcloud" type="pc2_to_file.py" name="pc2_to_file" >
-    <param name="target_frame"       value="base_link"                          />
-    <param name="pc2_topic"          value="rgb_cloud"                         />
-    <param name="save_to"            value="/home/arc/pointclouds/jason/"       />
+  <node pkg="scan_to_pointcloud" type="pc2_to_file.py" name="pc2_to_file" output="screen" >
+    <param name="target_frame"       value="ekf_odom" />
+    <param name="pc2_topic"          value="/rplidar/cloud_color" />
+    <param name="save_to"            value="/home/arc/clouds/" />
   </node>
 </launch>
